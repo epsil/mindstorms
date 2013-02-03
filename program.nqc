@@ -1,0 +1,133 @@
+// #define A_POWER         7
+// #define C_POWER         4
+#define A_POWER         7
+#define C_POWER         7
+#define TURN_TIME       115
+#define SHORT_TURN_TIME TURN_TIME / 3
+
+int direction = 0;   // Retningsvariabel (0 = venstre, 1 = høyre)
+
+void turn(int direction, int time) {
+  int extra = 0;
+
+  OnRev(OUT_A + OUT_C);   // Rygger
+  Wait(50);               // i 0,5 s
+  if(direction == 0) {              // Hvis direction = 0,
+    SetDirection(OUT_C, OUT_FWD);   // sving til venstre
+  }
+  else {                            // Hvis direction = 1,
+    SetDirection(OUT_A, OUT_FWD);   // sving til høyre
+  }
+
+  // Snu i time cs
+  // Hvis kollisjoner, snu litt til
+  ClearTimer(0);
+  while(Timer(0) < time / 10 + extra) {
+    if(SENSOR_1 == 1 ||
+       SENSOR_3 == 1) {
+      extra++;
+      Wait(10);
+    }
+  }
+  SetDirection(OUT_A + OUT_C, OUT_FWD);   // Kjør fremover
+}
+
+void align(int direction) {
+  int divisor = 10;   // Divisor for 10 * SHORT_TURN_TIME
+
+  OnFwd(OUT_A + OUT_C);   // Kjør fremover
+  Wait(50);               // i 0,5 s
+
+  while(SENSOR_1 != SENSOR_3) {
+    if(SENSOR_1 != direction &&   // Hvis siste kollisjon var på
+       SENSOR_3 == direction) {   // direction side, snu mot den
+      turn(direction, (10 * SHORT_TURN_TIME) / divisor);
+      while(SENSOR_1 == 0 &&
+            SENSOR_3 == 0) {
+        SetDirection(OUT_A + OUT_C, OUT_FWD);   // Kjør fremover
+      }                                         // mens det er fri bane,
+      Wait(10);                                 // og kjør på litt til
+    }
+    else {
+      // Skift venderetning
+      if(direction == 0) {
+        direction = 1;
+      }
+      else {
+        direction = 0;
+      }
+      divisor = (divisor * 3) / 2;   // Øk divisoren
+    }                                // (korter ned på snutiden)
+  }
+}
+
+task main() {
+  SetPower(OUT_A, A_POWER);   // Kalibrering
+  SetPower(OUT_C, C_POWER);
+
+  SetSensor(SENSOR_1, SENSOR_TOUCH);   // Direction støtsensor
+  SetSensor(SENSOR_2, SENSOR_LIGHT);   // Lyssensor (montert bak)
+  SetSensor(SENSOR_3, SENSOR_TOUCH);   // Høyre støtsensor
+
+  start move;
+  start monitSides;
+  start monitFront;
+}
+
+task move() {
+  while(true) {
+    OnFwd(OUT_A + OUT_C);   // Kjør fremover
+
+    // Hvis kollisjon på direction side,
+    // prøv å svinge til høyre i 0,5 s
+    if(SENSOR_1 == 1 &&
+       SENSOR_3 == 0) {
+      Float(OUT_C);
+      Wait(50);
+    }
+
+    // Hvis kollisjon på høyre side,
+    // prøv å svinge til direction i 0,5 s
+    else if(SENSOR_1 == 0 &&
+            SENSOR_3 == 1) {
+      Float(OUT_A);
+      Wait(50);
+    }
+  }
+}
+
+task monitSides() {
+  while(true) {
+    ClearTimer(0);
+
+    while(SENSOR_1 != SENSOR_3) {
+      if(Timer(0) > 10) {
+        stop move;
+        if(SENSOR_1 == 0) {
+          direction = 0;
+          align(direction);
+        }
+        else {
+          direction = 1;
+          align(direction);
+        }
+        start move;
+      }
+    }
+  }
+}
+
+task monitFront() {
+  while(true) {
+    if(SENSOR_1 == 1 &&
+       SENSOR_3 == 1) {
+      stop monitSides;        // "01 avbryter. Det er Fox 04 her.
+      stop move;              // Hallo - hold kjeft! Hold kjeft nå.
+      OnFwd(OUT_A + OUT_C);   // Jeg kaller alle biler."
+      Wait(10);
+      turn(direction, TURN_TIME);
+      start move;
+      start monitSides;
+    }
+  }
+}
